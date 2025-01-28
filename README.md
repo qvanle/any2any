@@ -1,7 +1,7 @@
 # Any2AnyTryon: A Unified Framework for Virtual Try-on Generation
 <div style="display: flex; justify-content: center; align-items: center;">
   <a href="https://arxiv.org/abs/2501.15891" style="margin: 0 2px;">
-    <img src='https://img.shields.io/badge/arXiv-2407.15886-red?style=flat&logo=arXiv&logoColor=red' alt='arxiv'>
+    <img src='https://img.shields.io/badge/arXiv-2501.15891-red?style=flat&logo=arXiv&logoColor=red' alt='arxiv'>
   </a>
   <a href='https://logn-2024.github.io/Any2anyTryonProjectPage/' style="margin: 0 2px;">
     <img src='https://img.shields.io/badge/Webpage-Project-silver?style=flat&logo=&logoColor=orange' alt='webpage'>
