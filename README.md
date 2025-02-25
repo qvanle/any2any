@@ -1,4 +1,4 @@
-# Any2AnyTryon: A Unified Framework for Virtual Try-on Generation
+# Any2AnyTryon: Leveraging Adaptive Position Embeddings for Versatile Virtual Clothing Tasks
 <div style="display: flex; justify-content: center; align-items: center;">
   <a href="https://arxiv.org/abs/2501.15891" style="margin: 0 2px;">
     <img src='https://img.shields.io/badge/arXiv-2501.15891-red?style=flat&logo=arXiv&logoColor=red' alt='arxiv'>
