@@ -21,9 +21,14 @@
 python app.py
 ```
 
+## Inference
+```bash
+python infer.py --model_image ./asset/images/model/model1.png --garment_image ./asset/images/garment/garment1.jpg
+```
+
 ## To-Do List
 - \[x\] Demo code and gradio interface
-- \[ \] Inference code
+- \[x\] Inference code
 - \[ \] Tryon checkpoint
 - \[ \] Model generation checkpoint
 - \[ \] Garment reconstruction checkpoint
