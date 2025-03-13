@@ -42,7 +42,7 @@ def generate_image(pipe, model_image_path, garment_image_path, prompt="", height
     width = width - (width % 16)  
     height = height - (height % 16)
 
-    concat_image_list = []
+    concat_image_list = [Image.fromarray(np.zeros((height, width, 3), dtype=np.uint8))]
     has_model_image = model_image_path is not None
     has_garment_image = garment_image_path is not None
 
@@ -60,12 +60,10 @@ def generate_image(pipe, model_image_path, garment_image_path, prompt="", height
         garment_image = resize_by_height(garment_image, height)
         concat_image_list.append(garment_image)
 
-    concat_image_list.append(Image.fromarray(np.zeros((height, width, 3), dtype=np.uint8)))
-
     image = Image.fromarray(np.concatenate([np.array(img) for img in concat_image_list], axis=1))
     
     mask = np.zeros_like(np.array(image))
-    mask[:,-width:] = 255
+    mask[:,:width] = 255
     mask_image = Image.fromarray(mask)
     
     image = pipe(
