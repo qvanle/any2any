@@ -13,7 +13,7 @@ from diffusers import FluxTransformer2DModel, FluxPipeline
 from transformers import T5EncoderModel, CLIPTextModel
 from diffusers import FluxInpaintPipeline, AutoencoderKL
 from src.pipeline_tryon import FluxTryonPipeline
-# from optimum.quanto import freeze, qfloat8, quantize
+from optimum.quanto import freeze, qfloat8, quantize
 
 device = torch.device("cuda")
 torch_dtype = torch.bfloat16
@@ -34,12 +34,12 @@ def load_models(device=device, torch_dtype=torch_dtype,):
         vae=vae,
         torch_dtype=torch_dtype,
     ).to(device="cpu", dtype=torch_dtype)
-    # pipe.transformer = torch.compile(pipe.transformer, mode="reduce-overhead", fullgraph=True) # resolution may change, not use this
+    # pipe.transformer = torch.compile(pipe.transformer, mode="reduce-overhead", fullgraph=True) # Do not use this if resolution can change
     # # quantize transformer cause severe degration
     # quantize(pipe.transformer, weights=qfloat8)
     # freeze(pipe.transformer)
-    # quantize(pipe.text_encoder_2, weights=qfloat8)
-    # freeze(pipe.text_encoder_2)    
+    quantize(pipe.text_encoder_2, weights=qfloat8)
+    freeze(pipe.text_encoder_2)    
     pipe.to(device=device)
 
     # Enable memory efficient attention and VAE optimization
@@ -127,7 +127,7 @@ def generate_image(prompt, model_image, garment_image, height=512, width=384, se
     width = width - (width % 16)  
     height = height - (height % 16)
 
-    concat_image_list = []
+    concat_image_list = [np.zeros((height, width, 3), dtype=np.uint8)]
     has_model_image = model_image is not None
     has_garment_image = garment_image is not None
     if has_model_image:
@@ -145,13 +145,12 @@ def generate_image(prompt, model_image, garment_image, height=512, width=384, se
         # else:
         garment_image = resize_by_height(garment_image, height)
         concat_image_list.append(garment_image)
-    concat_image_list.append(np.zeros((height, width, 3), dtype=np.uint8))
 
     image = np.concatenate([np.array(img) for img in concat_image_list], axis=1)
     image = Image.fromarray(image)
     
     mask = np.zeros_like(image)
-    mask[:,-width:] = 255
+    mask[:,:width] = 255
     mask_image = Image.fromarray(mask)
     
     assert height==image.height, "ensure same height"
@@ -175,7 +174,7 @@ def generate_image(prompt, model_image, garment_image, height=512, width=384, se
     
     latents = pipe._unpack_latents(output, image.height, image.width, pipe.vae_scale_factor)
     if show_type!="all outputs":
-        latents = latents[:,:,:,-width//pipe.vae_scale_factor:]
+        latents = latents[:,:,:,:width//pipe.vae_scale_factor]
     latents = (latents / pipe.vae.config.scaling_factor) + pipe.vae.config.shift_factor
     image = pipe.vae.decode(latents, return_dict=False)[0]
     image = pipe.image_processor.postprocess(image, output_type="pil")[0]

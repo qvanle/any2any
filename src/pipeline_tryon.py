@@ -37,15 +37,15 @@ class FluxTryonPipeline(FluxInpaintPipeline):
             latent_image_ids[..., 1] = latent_image_ids[..., 1] + torch.arange(height)[:, None]
             latent_image_ids[..., 2] = latent_image_ids[..., 2] + torch.arange(width)[None, :]
         else:
-            latent_image_ids[:, :-target_width, 0] = 1
+            latent_image_ids[:, target_width:, 0] = 1
             # height keep as before
             latent_image_ids[..., 1] = latent_image_ids[..., 1] + torch.arange(height)[:, None]
             if tryon:
-                latent_image_ids[:, target_width:-target_width, 0] = 2
+                latent_image_ids[:, target_width*2:, 0] = 2
                 # left
-                latent_image_ids[:, :-target_width, 2] = latent_image_ids[:, :-target_width, 2] + torch.arange(width-target_width)[None, :]
+                latent_image_ids[:, :target_width, 2] = latent_image_ids[:, :target_width, 2] + torch.arange(target_width)[None, :]
                 # right
-                latent_image_ids[:, -target_width:, 2] = latent_image_ids[:, -target_width:, 2] + torch.arange(target_width)[None, :]
+                latent_image_ids[:, target_width:, 2] = latent_image_ids[:, target_width:, 2] + torch.arange(width-target_width)[None, :]
             else:
                 latent_image_ids[..., 2] = latent_image_ids[..., 2] + torch.arange(width)[None, :]                
 
@@ -89,7 +89,7 @@ class FluxTryonPipeline(FluxInpaintPipeline):
 
         image = image.to(device=device, dtype=dtype)
         # image_latents = self._encode_vae_image(image=image, generator=generator)
-        img_parts = [image[:,:,:,:-target_width], image[:,:,:,-target_width:]]
+        img_parts = [image[:,:,:,:target_width], image[:,:,:,target_width:]]
         image_latents = [self._encode_vae_image(image=img, generator=generator) for img in img_parts]
         image_latents = torch.cat(image_latents, dim=-1)
 
@@ -430,7 +430,7 @@ class FluxTryonPipeline(FluxInpaintPipeline):
             image = latents
         else:
             latents = self._unpack_latents(latents, height, width, self.vae_scale_factor)
-            latents = latents[:,:,:,-target_width//self.vae_scale_factor:]
+            latents = latents[:,:,:,:target_width//self.vae_scale_factor]
             latents = (latents / self.vae.config.scaling_factor) + self.vae.config.shift_factor
             image = self.vae.decode(latents.to(device=self.vae.device, dtype=self.vae.dtype), return_dict=False)[0]
             image = self.image_processor.postprocess(image, output_type=output_type)
@@ -443,12 +443,33 @@ class FluxTryonPipeline(FluxInpaintPipeline):
 
         return FluxPipelineOutput(images=image)
 
+# Copied from diffusers.pipelines.flux.pipeline_flux.FluxPipeline._pack_latents    
+def flux_pack_latents(latents, batch_size, num_channels_latents, height, width):
+    latents = latents.view(batch_size, num_channels_latents, height // 2, 2, width // 2, 2)
+    latents = latents.permute(0, 2, 4, 1, 3, 5)
+    latents = latents.reshape(batch_size, (height // 2) * (width // 2), num_channels_latents * 4)
 
+    return latents
+
+# Copied from diffusers.pipelines.flux.pipeline_flux.FluxPipeline._unpack_latents
+def flux_unpack_latents(latents, height, width, vae_scale_factor):
+    batch_size, num_patches, channels = latents.shape
+
+    # VAE applies 8x compression on images but we must also account for packing which requires
+    # latent height and width to be divisible by 2.
+    height = 2 * (int(height) // (vae_scale_factor * 2))
+    width = 2 * (int(width) // (vae_scale_factor * 2))
+
+    latents = latents.view(batch_size, height // 2, width // 2, channels // 4, 2, 2)
+    latents = latents.permute(0, 3, 1, 4, 2, 5)
+
+    latents = latents.reshape(batch_size, channels // (2 * 2), height, width)
+
+    return latents
 
 # TODO: it is more reasonable to have target pe staring at 0
-def prepare_latent_image_ids(height, width_tgt, width_sub, width_spa, device, dtype):
+def prepare_latent_image_ids(height, width_tgt, height_spa, width_spa, height_sub, width_sub, device, dtype):
     assert width_spa==0 or width_tgt==width_spa
-    height, width_tgt, width_sub, width_spa = height//2, width_tgt//2, width_sub//2, width_spa//2
     latent_image_ids = torch.zeros(height, width_tgt, 3, device=device, dtype=dtype)
     latent_image_ids[..., 1] = latent_image_ids[..., 1] + torch.arange(height, device=device)[:, None]  # y坐标
     latent_image_ids[..., 2] = latent_image_ids[..., 2] + torch.arange(width_tgt, device=device)[None, :]   # x坐标
@@ -456,25 +477,24 @@ def prepare_latent_image_ids(height, width_tgt, width_sub, width_spa, device, dt
     cond_mark = 0
     if width_spa>0:
         cond_mark += 1
-        condspa_image_ids = torch.zeros(height, width_spa, 3, device=device, dtype=dtype)
+        condspa_image_ids = torch.zeros(height_spa, width_spa, 3, device=device, dtype=dtype)
         condspa_image_ids[..., 0] = cond_mark
-        condspa_image_ids[..., 1] = condspa_image_ids[..., 1] + torch.arange(height, device=device)[:, None]
+        condspa_image_ids[..., 1] = condspa_image_ids[..., 1] + torch.arange(height_spa, device=device)[:, None]
         condspa_image_ids[..., 2] = condspa_image_ids[..., 2] + torch.arange(width_spa, device=device)[None, :]
         condspa_image_ids = condspa_image_ids.reshape(-1, condspa_image_ids.shape[-1])
-    elif width_spa==0 and width_sub>0:
-        latent_image_ids[..., 2] += width_sub
+        
 
     if width_sub>0:
         cond_mark += 1
-        condsub_image_ids = torch.zeros(height, width_sub, 3, device=device, dtype=dtype)
+        condsub_image_ids = torch.zeros(height_sub, width_sub, 3, device=device, dtype=dtype)
         condsub_image_ids[..., 0] = cond_mark
-        condsub_image_ids[..., 1] = condsub_image_ids[..., 1] + torch.arange(height, device=device)[:, None]
-        condsub_image_ids[..., 2] = condsub_image_ids[..., 2] + torch.arange(width_sub, device=device)[None, :] + width_spa
+        condsub_image_ids[..., 1] = condsub_image_ids[..., 1] + torch.arange(height_sub, device=device)[:, None]
+        condsub_image_ids[..., 2] = condsub_image_ids[..., 2] + torch.arange(width_sub, device=device)[None, :] + width_tgt
         condsub_image_ids = condsub_image_ids.reshape(-1, condsub_image_ids.shape[-1])
 
     latent_image_ids = latent_image_ids.reshape(-1, latent_image_ids.shape[-1])
-    latent_image_ids = torch.cat([condsub_image_ids, latent_image_ids],dim=-2) if width_sub>0 else latent_image_ids
-    latent_image_ids = torch.cat([condspa_image_ids, latent_image_ids],dim=-2) if width_spa>0 else latent_image_ids
+    latent_image_ids = torch.cat([latent_image_ids, condspa_image_ids],dim=-2) if width_spa>0 else latent_image_ids
+    latent_image_ids = torch.cat([latent_image_ids, condsub_image_ids],dim=-2) if width_sub>0 else latent_image_ids
     return latent_image_ids
 
 
