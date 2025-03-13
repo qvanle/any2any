@@ -315,7 +315,7 @@ def inference(rank, world_size, args):
     pipe = load_models(args.model_path, device=device)
     
     scale = 1.0
-    pipe.set_adapters("control",adapter_weights=[scale]) 
+    pipe.set_adapters("tryon",adapter_weights=[scale]) 
     height, width = 512, 384 # 768, 576 # 1024, 768 # 
     if args.output_dir is None:
         args.output_dir = f"./results/vitonhd_test_{('paired' if args.paired else 'unpaired')}-"+f"_{height}_{width}"
