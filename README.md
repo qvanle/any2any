@@ -26,15 +26,35 @@ python app.py
 python infer.py --model_image ./asset/images/model/model1.png --garment_image ./asset/images/garment/garment1.jpg
 ```
 
+## Test
+
+To perform test on VITON-HD test set, download dataset according to [VITON-HD](https://github.com/shadow2496/VITON-HD). For unpaired VITON-HD test, run the following command:
+```bash
+CUDA_VISIBLE_DEVICES=0 python test_vitonhd.py --model_path black-forest-labs/FLUX.1-dev \
+--model_dir data/zalando-hd-resized/test/image --garment_dir data/zalando-hd-resized/test/cloth \
+--output_dir ./results/vitonhd_test_unpaired_repaint --meta_file data/zalando-hd-resized/test_pairs.txt \
+--mask_dir data/zalando-hd-resized/test/mask --source_dir data/zalando-hd-resized/test/image \
+--train_double_block_only --repaint 
+```
+For paired test, download [test set](https://huggingface.co/datasets/loooooong/Any2anyTryon_vitonhd_test) and extract images to local directory.
+```bash
+CUDA_VISIBLE_DEVICES=0 python test_vitonhd.py --model_path black-forest-labs/FLUX.1-dev \
+--model_dir data/zalando-hd-resized/test/image_synthesis --garment_dir data/zalando-hd-resized/test/cloth \
+--output_dir ./results/vitonhd_test_paired_repaint --meta_file data/zalando-hd-resized/test_pairs.txt \
+--mask_dir data/zalando-hd-resized/test/mask --source_dir data/zalando-hd-resized/test/image \
+--train_double_block_only --repaint --paired
+```
+
 ## To-Do List
 - \[x\] Demo code and gradio interface
 - \[x\] Inference code
-- \[ \] Tryon checkpoint
+- \[x\] Tryon checkpoint
 - \[ \] Model generation checkpoint
 - \[ \] Garment reconstruction checkpoint
 - \[ \] Base all tasks checkpoint
 - \[ \] dataset preparation
 - \[ \] Training code
+
 
 ## Citation
 
