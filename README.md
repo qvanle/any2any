@@ -49,8 +49,8 @@ CUDA_VISIBLE_DEVICES=0 python test_vitonhd.py --model_path black-forest-labs/FLU
 - \[x\] Demo code and gradio interface
 - \[x\] Inference code
 - \[x\] Tryon checkpoint
-- \[ \] Model generation checkpoint
-- \[ \] Garment reconstruction checkpoint
+- \[x\] Model generation checkpoint
+- \[x\] Garment reconstruction checkpoint
 - \[ \] Base all tasks checkpoint
 - \[ \] dataset preparation
 - \[ \] Training code

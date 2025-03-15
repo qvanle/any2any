@@ -9,7 +9,7 @@ from transformers import T5EncoderModel, CLIPTextModel
 from diffusers import FluxInpaintPipeline, AutoencoderKL
 from src.pipeline_tryon import FluxTryonPipeline, crop_to_multiple_of_16, resize_and_pad_to_size, resize_by_height
 
-def load_models(model_path, device="cuda", torch_dtype=torch.bfloat16):
+def load_models(model_path, lora_name=None, device="cuda", torch_dtype=torch.bfloat16):
     text_encoder = CLIPTextModel.from_pretrained(model_path, subfolder="text_encoder", torch_dtype=torch_dtype)
     text_encoder_2 = T5EncoderModel.from_pretrained(model_path, subfolder="text_encoder_2", torch_dtype=torch_dtype)
     transformer = FluxTransformer2DModel.from_pretrained(model_path, subfolder="transformer", torch_dtype=torch_dtype)
@@ -28,11 +28,12 @@ def load_models(model_path, device="cuda", torch_dtype=torch.bfloat16):
     pipe.vae.enable_slicing()
     pipe.vae.enable_tiling()
 
-    pipe.load_lora_weights(
-        "loooooong/Any2anyTryon",
-        weight_name="dev_lora_any2any_tryon.safetensors",
-        adapter_name="tryon",
-    )
+    if lora_name is not None:
+        pipe.load_lora_weights(
+            "loooooong/Any2anyTryon",
+            weight_name=lora_name,
+            adapter_name="tryon",
+        )
     return pipe
 
 @torch.no_grad()
@@ -90,6 +91,7 @@ def generate_image(pipe, model_image_path, garment_image_path, prompt="", height
 def main():
     parser = argparse.ArgumentParser(description='Virtual Try-on Image Generation')
     parser.add_argument('--model_path', type=str, default="black-forest-labs/FLUX.1-dev", help='Path to the model')
+    parser.add_argument('--lora_name', type=str, default="dev_lora_any2any_tryon.safetensors", help='choose from dev_lora_any2any_tryon.safetensors, dev_lora_any2any_tryon.safetensors and dev_lora_garment_reconstruction.safetensors')
     parser.add_argument('--model_image', type=str, help='Path to the model image')
     parser.add_argument('--garment_image', type=str, help='Path to the garment image')
     parser.add_argument('--prompt', type=str, default="")
@@ -103,7 +105,7 @@ def main():
     
     args = parser.parse_args()
     
-    pipe = load_models(args.model_path, device=args.device)
+    pipe = load_models(args.model_path, lora_name=args.lora_name, device=args.device)
     
     output_image = generate_image(
         pipe=pipe,
