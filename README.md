@@ -38,6 +38,9 @@ CUDA_VISIBLE_DEVICES=0 python test_vitonhd.py --model_path black-forest-labs/FLU
 ```
 For paired test, download [test set](https://huggingface.co/datasets/loooooong/Any2anyTryon_vitonhd_test) and extract images to local directory.
 ```bash
+python src/download_data.py
+```
+```bash
 CUDA_VISIBLE_DEVICES=0 python test_vitonhd.py --model_path black-forest-labs/FLUX.1-dev \
 --model_dir data/zalando-hd-resized/test/image_synthesis --garment_dir data/zalando-hd-resized/test/cloth \
 --output_dir ./results/vitonhd_test_paired_repaint --meta_file data/zalando-hd-resized/test_pairs.txt \
@@ -51,7 +54,7 @@ CUDA_VISIBLE_DEVICES=0 python test_vitonhd.py --model_path black-forest-labs/FLU
 - \[x\] Tryon checkpoint
 - \[x\] Model generation checkpoint
 - \[x\] Garment reconstruction checkpoint
-- \[ \] Base all tasks checkpoint
+- \[x\] Base all tasks checkpoint
 - \[ \] dataset preparation
 - \[ \] Training code
 
