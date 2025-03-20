@@ -16,6 +16,14 @@
 
 ![teaser](asset/images/teaser.png)
 
+## Environment
+```bash
+conda create -n Any2AnyTryon python=3.11
+conda activate Any2AnyTryon
+pip install torch==2.5.1 torchvision==0.20.1 torchaudio==2.5.1 --index-url https://download.pytorch.org/whl/cu124
+pip install --upgrade -r requirements.txt
+```
+
 ## Demo
 Using `--group_offloading` saves memory but slows processing.
 ```bash
