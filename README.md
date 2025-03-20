@@ -17,18 +17,21 @@
 ![teaser](asset/images/teaser.png)
 
 ## Demo
+Using `--group_offloading` saves memory but slows processing.
 ```bash
 python app.py
 ```
 
 ## Inference
+Choose a LoRA from [here](https://huggingface.co/loooooong/Any2anyTryon) or use `--lora_name` with the script.
 ```bash
-python infer.py --model_image ./asset/images/model/model1.png --garment_image ./asset/images/garment/garment1.jpg
+python infer.py --model_image ./asset/images/model/model1.png --garment_image ./asset/images/garment/garment1.jpg \
+--prompt="<MODEL> a man <GARMENT> t-shirt with pockets <TARGET> man wearing the t-shirt"
 ```
 
 ## Test
 
-To perform test on VITON-HD test set, download dataset according to [VITON-HD](https://github.com/shadow2496/VITON-HD). For unpaired VITON-HD test, run the following command:
+Download the dataset from the [VITON-HD](https://github.com/shadow2496/VITON-HD). Generate segmentation masks using [AutoMasker](https://github.com/Zheng-Chong/CatVTON/blob/edited/preprocess_agnostic_mask.py) for repainting. For unpaired data evaluation, execute the following command:
 ```bash
 CUDA_VISIBLE_DEVICES=0 python test_vitonhd.py --model_path black-forest-labs/FLUX.1-dev \
 --model_dir data/zalando-hd-resized/test/image --garment_dir data/zalando-hd-resized/test/cloth \
@@ -55,9 +58,8 @@ CUDA_VISIBLE_DEVICES=0 python test_vitonhd.py --model_path black-forest-labs/FLU
 - \[x\] Model generation checkpoint
 - \[x\] Garment reconstruction checkpoint
 - \[x\] Base all tasks checkpoint
-- \[ \] dataset preparation
+- \[ \] Dataset preparation
 - \[ \] Training code
-
 
 ## Citation
 

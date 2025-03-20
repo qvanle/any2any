@@ -7,13 +7,14 @@ import os
 from diffusers import FluxTransformer2DModel, FluxPipeline
 from transformers import T5EncoderModel, CLIPTextModel
 from diffusers import FluxInpaintPipeline, AutoencoderKL
+from diffusers.hooks import apply_group_offloading
 from src.pipeline_tryon import FluxTryonPipeline, crop_to_multiple_of_16, resize_and_pad_to_size, resize_by_height
 
-def load_models(model_path, lora_name=None, device="cuda", torch_dtype=torch.bfloat16):
+def load_models(model_path, lora_name=None, device="cuda", torch_dtype=torch.bfloat16, group_offloading=False):
     text_encoder = CLIPTextModel.from_pretrained(model_path, subfolder="text_encoder", torch_dtype=torch_dtype)
     text_encoder_2 = T5EncoderModel.from_pretrained(model_path, subfolder="text_encoder_2", torch_dtype=torch_dtype)
     transformer = FluxTransformer2DModel.from_pretrained(model_path, subfolder="transformer", torch_dtype=torch_dtype)
-    vae = AutoencoderKL.from_pretrained(model_path, subfolder="vae")
+    vae = AutoencoderKL.from_pretrained(model_path, subfolder="vae", torch_dtype=torch_dtype)
 
     pipe = FluxTryonPipeline.from_pretrained(
         model_path,
@@ -22,18 +23,51 @@ def load_models(model_path, lora_name=None, device="cuda", torch_dtype=torch.bfl
         text_encoder_2=text_encoder_2,
         vae=vae,
         torch_dtype=torch_dtype,
-    ).to(device=device, dtype=torch_dtype)
-
+    )
     pipe.enable_attention_slicing()
     pipe.vae.enable_slicing()
     pipe.vae.enable_tiling()
 
     if lora_name is not None:
+        pipe.enable_model_cpu_offload()
         pipe.load_lora_weights(
             "loooooong/Any2anyTryon",
             weight_name=lora_name,
             adapter_name="tryon",
         )
+        pipe.remove_all_hooks()
+    
+    if group_offloading:
+        # https://huggingface.co/docs/diffusers/main/en/api/pipelines/flux#group-offloading
+        apply_group_offloading(
+            pipe.transformer,
+            offload_type="leaf_level",
+            offload_device=torch.device("cpu"),
+            onload_device=torch.device(device),
+            use_stream=True,
+        )
+        apply_group_offloading(
+            pipe.text_encoder, 
+            offload_device=torch.device("cpu"),
+            onload_device=torch.device(device),
+            offload_type="leaf_level",
+            use_stream=True,
+        )
+        apply_group_offloading(
+            pipe.text_encoder_2, 
+            offload_device=torch.device("cpu"),
+            onload_device=torch.device(device),
+            offload_type="leaf_level",
+            use_stream=True,
+        )
+        apply_group_offloading(
+            pipe.vae, 
+            offload_device=torch.device("cpu"),
+            onload_device=torch.device(device),
+            offload_type="leaf_level",
+            use_stream=True,
+        )
+    pipe.to(device=device)
     return pipe
 
 @torch.no_grad()
@@ -91,21 +125,22 @@ def generate_image(pipe, model_image_path, garment_image_path, prompt="", height
 def main():
     parser = argparse.ArgumentParser(description='Virtual Try-on Image Generation')
     parser.add_argument('--model_path', type=str, default="black-forest-labs/FLUX.1-dev", help='Path to the model')
-    parser.add_argument('--lora_name', type=str, default="dev_lora_any2any_tryon.safetensors", help='choose from dev_lora_any2any_tryon.safetensors, dev_lora_any2any_tryon.safetensors and dev_lora_garment_reconstruction.safetensors')
+    parser.add_argument('--lora_name', type=str, default="dev_lora_any2any_alltasks.safetensors", help='choose from dev_lora_any2any_alltasks.safetensors, dev_lora_any2any_tryon.safetensors and dev_lora_garment_reconstruction.safetensors')
     parser.add_argument('--model_image', type=str, help='Path to the model image')
     parser.add_argument('--garment_image', type=str, help='Path to the garment image')
     parser.add_argument('--prompt', type=str, default="")
-    parser.add_argument('--height', type=int, default=768)
+    parser.add_argument('--height', type=int, default=576)
     parser.add_argument('--width', type=int, default=576)
     parser.add_argument('--seed', type=int, default=0)
     parser.add_argument('--guidance_scale', type=float, default=3.5)
     parser.add_argument('--num_inference_steps', type=int, default=30)
     parser.add_argument('--output_path', type=str, default='./results/output.png')
     parser.add_argument('--device', type=str, default='cuda')
+    parser.add_argument('--group_offloading', action="store_true")
     
     args = parser.parse_args()
     
-    pipe = load_models(args.model_path, lora_name=args.lora_name, device=args.device)
+    pipe = load_models(args.model_path, lora_name=args.lora_name, device=args.device,group_offloading=args.group_offloading)
     
     output_image = generate_image(
         pipe=pipe,

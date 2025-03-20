@@ -4,27 +4,25 @@ from PIL import Image
 import gradio as gr
 
 import os
-import piexif
 import json
-from datetime import datetime
+import argparse
 
-
-from diffusers import FluxTransformer2DModel, FluxPipeline
+from diffusers import FluxTransformer2DModel, AutoencoderKL
+from diffusers.hooks import apply_group_offloading
 from transformers import T5EncoderModel, CLIPTextModel
-from diffusers import FluxInpaintPipeline, AutoencoderKL
 from src.pipeline_tryon import FluxTryonPipeline
 from optimum.quanto import freeze, qfloat8, quantize
 
 device = torch.device("cuda")
-torch_dtype = torch.bfloat16
+torch_dtype = torch.bfloat16 # torch.float16
 
-def load_models(device=device, torch_dtype=torch_dtype,):
+def load_models(device=device, torch_dtype=torch_dtype,group_offloading=False):
     bfl_repo = "black-forest-labs/FLUX.1-dev"
     # Enable memory efficient attention
     text_encoder = CLIPTextModel.from_pretrained(bfl_repo, subfolder="text_encoder", torch_dtype=torch_dtype,)
     text_encoder_2 = T5EncoderModel.from_pretrained(bfl_repo, subfolder="text_encoder_2", torch_dtype=torch_dtype,)
     transformer = FluxTransformer2DModel.from_pretrained(bfl_repo, subfolder="transformer", torch_dtype=torch_dtype,)
-    vae = AutoencoderKL.from_pretrained(bfl_repo, subfolder="vae")
+    vae = AutoencoderKL.from_pretrained(bfl_repo, subfolder="vae", torch_dtype=torch_dtype)
     # transformer = FluxTransformer2DModel.from_single_file("Kijai/flux-fp8/flux1-dev-fp8.safetensors", torch_dtype=torch_dtype)
     pipe = FluxTryonPipeline.from_pretrained(
         bfl_repo,
@@ -33,30 +31,62 @@ def load_models(device=device, torch_dtype=torch_dtype,):
         text_encoder_2=text_encoder_2,
         vae=vae,
         torch_dtype=torch_dtype,
-    ).to(device="cpu", dtype=torch_dtype)
+    )#.to(device="cpu", dtype=torch_dtype)
     # pipe.transformer = torch.compile(pipe.transformer, mode="reduce-overhead", fullgraph=True) # Do not use this if resolution can change
     # # quantize transformer cause severe degration
     # quantize(pipe.transformer, weights=qfloat8)
     # freeze(pipe.transformer)
     quantize(pipe.text_encoder_2, weights=qfloat8)
     freeze(pipe.text_encoder_2)    
-    pipe.to(device=device)
+    # pipe.to(device=device)
 
     # Enable memory efficient attention and VAE optimization
     pipe.enable_attention_slicing()
-    # pipe.enable_sequential_cpu_offload()
-    # pipe.enable_model_cpu_offload()
     pipe.vae.enable_slicing()
     pipe.vae.enable_tiling()
 
+    pipe.enable_model_cpu_offload()
+    # pipe.enable_sequential_cpu_offload()
     pipe.load_lora_weights(
         "loooooong/Any2anyTryon",
-        weight_name="dev_lora_any2any_tryon.safetensors",
+        weight_name="dev_lora_any2any_alltasks.safetensors",
         adapter_name="tryon",
     )
-    return pipe
+    pipe.remove_all_hooks()
 
-pipe = load_models()
+    if group_offloading:
+        # https://huggingface.co/docs/diffusers/main/en/api/pipelines/flux#group-offloading
+        apply_group_offloading(
+            pipe.transformer,
+            offload_type="leaf_level",
+            offload_device=torch.device("cpu"),
+            onload_device=torch.device(device),
+            use_stream=True,
+        )
+        apply_group_offloading(
+            pipe.text_encoder, 
+            offload_device=torch.device("cpu"),
+            onload_device=torch.device(device),
+            offload_type="leaf_level",
+            use_stream=True,
+        )
+        # apply_group_offloading(
+        #     pipe.text_encoder_2, 
+        #     offload_device=torch.device("cpu"),
+        #     onload_device=torch.device(device),
+        #     offload_type="leaf_level",
+        #     use_stream=True,
+        # )
+        apply_group_offloading(
+            pipe.vae, 
+            offload_device=torch.device("cpu"),
+            onload_device=torch.device(device),
+            offload_type="leaf_level",
+            use_stream=True,
+        )
+
+    pipe.to(device=device)
+    return pipe
 
 def crop_to_multiple_of_16(img):
     width, height = img.size
@@ -168,7 +198,7 @@ def generate_image(prompt, model_image, garment_image, height=512, width=384, se
         guidance_scale=guidance_scale,
         num_inference_steps=num_inference_steps,
         max_sequence_length=512,
-        generator=torch.Generator("cpu").manual_seed(seed),
+        generator=torch.Generator().manual_seed(seed),
         output_type="latent",
     ).images
     
@@ -237,7 +267,7 @@ garment4 = Image.open("asset/images/garment/garment4.jpg")
 def launch_demo():
     with gr.Blocks() as demo:   
         gr.Markdown("# Any2AnyTryon")
-        gr.Markdown("Demo(experimental) for [Any2AnyTryon: A Unified Framework for Virtual Try-on Generation](https://arxiv.org/abs/2501.15891) ([Code](https://github.com/logn-2024/Any2anyTryon)).") 
+        gr.Markdown("Demo(experimental) for [Any2AnyTryon: Leveraging Adaptive Position Embeddings for Versatile Virtual Clothing Tasks](https://arxiv.org/abs/2501.15891) ([Code](https://github.com/logn-2024/Any2anyTryon)).") 
         with gr.Row():
             with gr.Column():
                 model_image = gr.Image(label="Model Image", type="numpy", interactive=True,)
@@ -249,17 +279,17 @@ def launch_demo():
                             info="Try example prompts from right side",
                             placeholder="Enter your prompt here...",
                             value="",
-                            visible=False,
+                            # visible=False,
                         )
-                        with gr.Row(visible=False):
-                            height = gr.Number(label="Height", value=768, precision=0)
+                        with gr.Row():
+                            height = gr.Number(label="Height", value=576, precision=0)
                             width = gr.Number(label="Width", value=576, precision=0)
                         seed = gr.Number(label="Seed", value=0, precision=0)
                         with gr.Accordion("Advanced Settings", open=False):
                             guidance_scale = gr.Number(label="Guidance Scale", value=3.5)
                             num_inference_steps = gr.Number(label="Inference Steps", value=15)
                             show_type = gr.Radio(label="Show Type",choices=["follow model image", "follow height & width", "all outputs"],value="follow model image")
-                            auto_ar = gr.Checkbox(label="Detect Image Size(From Uploaded Images)", value=False, visible=False,)
+                            auto_ar = gr.Checkbox(label="Detect Image Size(From Uploaded Images)", value=False, visible=True,)
                 btn = gr.Button("Generate")
             
             with gr.Column():
@@ -272,7 +302,7 @@ def launch_demo():
                         ],
                         inputs=prompt,
                         label="Example Prompts",
-                        visible=False
+                        # visible=False
                     )
                 example_model = gr.Examples(
                     examples=[
@@ -306,34 +336,34 @@ def launch_demo():
         examples = [
             # tryon
             [
-                # '''''',
+                '''<MODEL> a man <GARMENT> a medium-sized, short-sleeved, blue t-shirt with a round neckline and a pocket on the front. <TARGET> model with fashion garment''',
                 model1,
                 garment1,
-                768, 576
+                576, 576
             ],
             [
-                # '''''',
+                '''<MODEL> a man with gray hair and a beard wearing a black jacket and sunglasses, standing in front of a body of water with mountains in the background and a cloudy sky above <GARMENT> a black and white striped t-shirt with a red heart embroidered on the chest <TARGET> ''',
                 model2,
                 garment2,
-                768, 576
+                576, 576
             ],
             [
-                # '''''',
+                '''<MODEL> a person with fashion garment. <GARMENT> a garment. <TARGET> model with fashion garment''',
                 model3,
                 garment3,
-                768, 576
+                576, 576
             ],
             [
-                # '''''',
+                '''<MODEL> a woman lift up her right leg. <GARMENT> a pair of black and white patterned pajama pants. <TARGET> model with fashion garment''',
                 model4,
                 garment4,
-                768, 576
+                576, 576
             ],
         ]
         
         gr.Examples(
             examples=examples,
-            inputs=[model_image, garment_image], # prompt
+            inputs=[prompt, model_image, garment_image],
             outputs=output,
             fn=generate_image,
             cache_examples=False,
@@ -343,4 +373,8 @@ def launch_demo():
         server_name="0.0.0.0"
     )
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--group_offloading', action="store_true")
+    args=parser.parse_args()
+    pipe = load_models(group_offloading=args.group_offloading)
     launch_demo()
