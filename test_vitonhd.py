@@ -1,4 +1,4 @@
-from diffusers import FluxTransformer2DModel, FluxPipeline
+from diffusers import FluxTransformer2DModel
 from transformers import T5EncoderModel, CLIPTextModel
 from diffusers import AutoencoderKL
 from src.pipeline_tryon import FluxTryonPipeline
@@ -9,7 +9,6 @@ import torch.multiprocessing as mp
 import numpy as np
 from PIL import Image
 import os
-from os.path import join as opj, splitext as ops, basename as opb
 import json
 from datetime import datetime
 from pathlib import Path
@@ -139,7 +138,7 @@ def generate_image(pipe, prompt, model_image, garment_image, height=512, width=3
             scale_lora_layers(self, lora_scale)
         else:
             if joint_attention_kwargs is not None and joint_attention_kwargs.get("scale", None) is not None:
-                logger.warning(
+                print(
                     "Passing `scale` via `joint_attention_kwargs` when not using the PEFT backend is ineffective."
                 )
         hidden_states = self.x_embedder(hidden_states)
@@ -158,13 +157,13 @@ def generate_image(pipe, prompt, model_image, garment_image, height=512, width=3
         encoder_hidden_states = self.context_embedder(encoder_hidden_states)
 
         if txt_ids.ndim == 3:
-            logger.warning(
+            print(
                 "Passing `txt_ids` 3d torch.Tensor is deprecated."
                 "Please remove the batch dimension and pass it as a 2d torch Tensor"
             )
             txt_ids = txt_ids[0]
         if img_ids.ndim == 3:
-            logger.warning(
+            print(
                 "Passing `img_ids` 3d torch.Tensor is deprecated."
                 "Please remove the batch dimension and pass it as a 2d torch Tensor"
             )
@@ -191,7 +190,7 @@ def generate_image(pipe, prompt, model_image, garment_image, height=512, width=3
 
                     return custom_forward
 
-                ckpt_kwargs: Dict[str, Any] = {"use_reentrant": False} if is_torch_version(">=", "1.11.0") else {}
+                ckpt_kwargs = {"use_reentrant": False}
                 encoder_hidden_states, hidden_states = torch.utils.checkpoint.checkpoint(
                     create_custom_forward(block),
                     hidden_states,
@@ -237,7 +236,7 @@ def generate_image(pipe, prompt, model_image, garment_image, height=512, width=3
 
                     return custom_forward
 
-                ckpt_kwargs: Dict[str, Any] = {"use_reentrant": False} if is_torch_version(">=", "1.11.0") else {}
+                ckpt_kwargs = {"use_reentrant": False}
                 hidden_states = torch.utils.checkpoint.checkpoint(
                     create_custom_forward(block),
                     hidden_states,
@@ -356,7 +355,7 @@ def inference(rank, world_size, args):
             
             # Check if corresponding mask and source files exist
             if not os.path.exists(mask_file) or not os.path.exists(source_model_file):
-                print(f"Skipping {img_file} - missing corresponding mask or source image files")
+                print(f"Skipping {model_file} - missing corresponding mask or source image files")
                 continue
 
             mask = Image.open(mask_file).convert('L').resize(output.size)
