@@ -79,6 +79,92 @@ def load_models(model_path, device="cuda"):
         weight_name="dev_lora_tryon_vitonhd_512.safetensors",
         adapter_name="tryon",
     )
+
+    from diffusers.utils.torch_utils import randn_tensor
+    @staticmethod
+    def _prepare_latent_image_ids(batch_size, height, width, device, dtype, target_width=-1, tryon=False):
+        latent_image_ids = torch.zeros(height, width, 3)
+        if target_width==-1:
+            latent_image_ids[..., 1] = latent_image_ids[..., 1] + torch.arange(height)[:, None]
+            latent_image_ids[..., 2] = latent_image_ids[..., 2] + torch.arange(width)[None, :]
+        else:
+            latent_image_ids[:, :-target_width, 0] = 1
+            # height keep as before
+            latent_image_ids[..., 1] = latent_image_ids[..., 1] + torch.arange(height)[:, None]
+            if tryon:
+                latent_image_ids[:, target_width:-target_width, 0] = 2
+                # left
+                latent_image_ids[:, :-target_width, 2] = latent_image_ids[:, :-target_width, 2] + torch.arange(width-target_width)[None, :]
+                # right
+                latent_image_ids[:, -target_width:, 2] = latent_image_ids[:, -target_width:, 2] + torch.arange(target_width)[None, :]
+            else:
+                latent_image_ids[..., 2] = latent_image_ids[..., 2] + torch.arange(width)[None, :]                
+        latent_image_id_height, latent_image_id_width, latent_image_id_channels = latent_image_ids.shape
+        latent_image_ids = latent_image_ids.reshape(
+            latent_image_id_height * latent_image_id_width, latent_image_id_channels
+        )
+        return latent_image_ids.to(device=device, dtype=dtype)
+    
+    def prepare_latents(
+        self,
+        image,
+        timestep,
+        batch_size,
+        num_channels_latents,
+        height,
+        width,
+        target_width,
+        tryon,
+        dtype,
+        device,
+        generator,
+        latents=None,
+    ):
+        if isinstance(generator, list) and len(generator) != batch_size:
+            raise ValueError(
+                f"You have passed a list of generators of length {len(generator)}, but requested an effective batch"
+                f" size of {batch_size}. Make sure the batch size matches the length of the generators."
+            )
+
+        # VAE applies 8x compression on images but we must also account for packing which requires
+        # latent height and width to be divisible by 2.
+        height = 2 * (int(height) // (self.vae_scale_factor * 2))
+        width = 2 * (int(width) // (self.vae_scale_factor * 2))
+        shape = (batch_size, num_channels_latents, height, width)
+        sp = 2 * (int(target_width) // (self.vae_scale_factor * 2))//2 # -1 
+        latent_image_ids = self._prepare_latent_image_ids(batch_size, height // 2, width // 2, device, dtype, sp, tryon)
+
+        image = image.to(device=device, dtype=dtype)
+        # image_latents = self._encode_vae_image(image=image, generator=generator)
+        img_parts = [image[:,:,:,:-target_width], image[:,:,:,-target_width:]]
+        image_latents = [self._encode_vae_image(image=img, generator=generator) for img in img_parts]
+        image_latents = torch.cat(image_latents, dim=-1)
+
+        if batch_size > image_latents.shape[0] and batch_size % image_latents.shape[0] == 0:
+            # expand init_latents for batch_size
+            additional_image_per_prompt = batch_size // image_latents.shape[0]
+            image_latents = torch.cat([image_latents] * additional_image_per_prompt, dim=0)
+        elif batch_size > image_latents.shape[0] and batch_size % image_latents.shape[0] != 0:
+            raise ValueError(
+                f"Cannot duplicate `image` of batch size {image_latents.shape[0]} to {batch_size} text prompts."
+            )
+        else:
+            image_latents = torch.cat([image_latents], dim=0)
+
+        if latents is None:
+            noise = randn_tensor(shape, generator=generator, device=device, dtype=dtype)
+            latents = self.scheduler.scale_noise(image_latents, timestep, noise)
+        else:
+            noise = latents.to(device)
+            latents = noise
+
+        noise = self._pack_latents(noise, batch_size, num_channels_latents, height, width)
+        image_latents = self._pack_latents(image_latents, batch_size, num_channels_latents, height, width)
+        latents = self._pack_latents(latents, batch_size, num_channels_latents, height, width)
+        return latents, noise, image_latents, latent_image_ids
+    pipe._prepare_latent_image_ids = _prepare_latent_image_ids
+    pipe.prepare_latents = prepare_latents.__get__(pipe)
+
     return pipe
 
 def resize_by_height(image, height):
@@ -99,16 +185,16 @@ def generate_image(pipe, prompt, model_image, garment_image, height=512, width=3
     width = width - (width % 16)  
     height = height - (height % 16)
 
-    concat_image_list = [Image.fromarray(np.zeros((height, width, 3), dtype=np.uint8))]
+    concat_image_list = []
     model_image = resize_by_height(model_image, height)
     garment_image = resize_by_height(garment_image, height)
-    concat_image_list.extend([model_image, garment_image])
+    concat_image_list.extend([model_image, garment_image,Image.fromarray(np.zeros((height, width, 3), dtype=np.uint8))])
 
     image = np.concatenate([np.array(img) for img in concat_image_list], axis=1)
     image = Image.fromarray(image)
     
     mask = np.zeros_like(np.array(image))
-    mask[:,:width] = 255
+    mask[:,-width:] = 255
     mask_image = Image.fromarray(mask)
 
     def forward_flux(
@@ -293,7 +379,7 @@ def generate_image(pipe, prompt, model_image, garment_image, height=512, width=3
     ).images
 
     latents = pipe._unpack_latents(output, image.height, image.width, pipe.vae_scale_factor)
-    latents = latents[:,:,:,:width//pipe.vae_scale_factor]
+    latents = latents[:,:,:,-width//pipe.vae_scale_factor:]
     latents = (latents / pipe.vae.config.scaling_factor) + pipe.vae.config.shift_factor
     image = pipe.vae.decode(latents, return_dict=False)[0]
     image = pipe.image_processor.postprocess(image, output_type="pil")[0]
