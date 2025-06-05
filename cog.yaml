@@ -1,0 +1,9 @@
+build:
+  python_version: "3.10.12"
+  gpu: true
+  system_packages:
+    - "libgl1-mesa-glx"
+    - "libglib2.0-0"
+  python_requirements: "requirements.txt"
+predict: "predict.py:Predictor"
+

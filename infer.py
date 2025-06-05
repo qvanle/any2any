@@ -11,10 +11,11 @@ from diffusers.hooks import apply_group_offloading
 from src.pipeline_tryon import FluxTryonPipeline, crop_to_multiple_of_16, resize_and_pad_to_size, resize_by_height
 
 def load_models(model_path, lora_name=None, device="cuda", torch_dtype=torch.bfloat16, group_offloading=False):
-    text_encoder = CLIPTextModel.from_pretrained(model_path, subfolder="text_encoder", torch_dtype=torch_dtype)
-    text_encoder_2 = T5EncoderModel.from_pretrained(model_path, subfolder="text_encoder_2", torch_dtype=torch_dtype)
-    transformer = FluxTransformer2DModel.from_pretrained(model_path, subfolder="transformer", torch_dtype=torch_dtype)
-    vae = AutoencoderKL.from_pretrained(model_path, subfolder="vae", torch_dtype=torch_dtype)
+    weights_path = "weights"
+    text_encoder = CLIPTextModel.from_pretrained(model_path, subfolder="text_encoder", torch_dtype=torch_dtype, cache_dir=weights_path)
+    text_encoder_2 = T5EncoderModel.from_pretrained(model_path, subfolder="text_encoder_2", torch_dtype=torch_dtype, cache_dir=weights_path)
+    transformer = FluxTransformer2DModel.from_pretrained(model_path, subfolder="transformer", torch_dtype=torch_dtype, cache_dir=weights_path)
+    vae = AutoencoderKL.from_pretrained(model_path, subfolder="vae", torch_dtype=torch_dtype, cache_dir=weights_path)
 
     pipe = FluxTryonPipeline.from_pretrained(
         model_path,
@@ -23,6 +24,7 @@ def load_models(model_path, lora_name=None, device="cuda", torch_dtype=torch.bfl
         text_encoder_2=text_encoder_2,
         vae=vae,
         torch_dtype=torch_dtype,
+        cache_dir=weights_path,
     )
     pipe.enable_attention_slicing()
     pipe.vae.enable_slicing()
@@ -34,6 +36,7 @@ def load_models(model_path, lora_name=None, device="cuda", torch_dtype=torch.bfl
             "loooooong/Any2anyTryon",
             weight_name=lora_name,
             adapter_name="tryon",
+            cache_dir=weights_path,
         )
         pipe.remove_all_hooks()
     
